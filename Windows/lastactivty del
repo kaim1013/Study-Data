@@ -1,0 +1,108 @@
+@echo off
+
+color 02
+
+cls
+
+title 보안점검을 시작하겠습니다.
+
+echo.
+echo.
+echo                         운영자 PC 점검을 시작합니다.
+echo                    ########################################
+echo                        오늘 점검날짜 %DATE% 이고,          
+echo                        현재 시각은 %TIME% 입니다. 
+echo                        사용자 컴퓨터 이름 %COMPUTERNAME%    
+echo                        보안점검을 시작하겠습니다.  
+echo                    ########################################
+echo.
+echo.
+     
+pause
+
+set filename=%COMPUTERNAME%_%date%.txt
+
+echo ----------------------------------------------------------
+echo                      Activity Delete
+echo ----------------------------------------------------------
+
+wevtutil.exe cl "Application" & wevtutil.exe cl "Security" & wevtutil.exe cl "Setup" & wevtutil.exe cl "System" & wevtutil.exe cl "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational"
+
+echo %ERRORLEVEL%
+
+del /s /q C:\Windows\Prefetch
+
+echo %ERRORLEVEL%
+
+del /s /q C:\Users\Default\AppData\Roaming\Microsoft\Windows\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q %USERPROFILE%\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q %USERPROFILE%\AppData\Roaming\Microsoft\Office\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q %USERPROFILE%\AppData\Roaming\Microsoft\Windows\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Microsoft\Windows\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q C:\Windows\ServiceProfiles\NetworkService\AppData\Roaming\Microsoft\Windows\Recent
+
+echo %ERRORLEVEL%
+
+del /s /q "C:\Program Files\Saferzone\DefconSecureUSB\Data\FILES"
+
+echo %ERRORLEVEL%
+
+reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU" /f
+
+echo %ERRORLEVEL%
+    
+reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\ShellNoRoam" /f
+
+echo %ERRORLEVEL%
+    
+reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell" /f
+
+echo %ERRORLEVEL%
+
+reg delete "HKEY_CLASSES_ROOT\Local Settings\Software\Microsoft\Windows\Shell\BagMRU" /f
+
+echo %ERRORLEVEL%
+
+reg delete "HKEY_CLASSES_ROOT\Local Settings\Software\Microsoft\Windows\Shell\Bags" /f
+
+echo %ERRORLEVEL%
+
+reg delete "HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\BagMRU" /f
+
+echo %ERRORLEVEL%
+
+reg delete "HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags" /f
+
+rem echo %ERRORLEVEL%
+
+rem reg delete "HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall" /f
+
+rem echo %ERRORLEVEL%
+    
+rem reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall" /f
+
+echo %ERRORLEVEL%
+
+dir *패스*.xlsx,*pass*.xlsx,*비번*.xlsx,*중요*.xlsx,*관리자*.xlsx,IP*.xlsx,*작업계획*.xlsx,*비밀*.xlsx,*test*.xlsx,*패스*.txt,*pass*.txt,*비번*.txt,*중요*.txt,*관리자*.txt,IP*.txt,*작업계획*.txt,*비밀*.txt,*test*.txt,*패스*.doc,*pass*.doc,*비번*.doc,*중요*.doc,*관리자*.doc,IP*.doc,*작업계획*.doc,*비밀*.doc,*패스*.hwp,*pass*.hwp,*비번*.hwp,*중요*.hwp,*관리자*.hwp,IP*.hwp,*작업계획*.hwp,*비밀*.hwp,*test*.hwp,*패스*.ppt*,*pass*.ppt*,*비번*.ppt*,*중요*.ppt*,*관리자*.ppt*,IP*.ppt*,*작업계획*.ppt*,*비밀*.ppt*,*test*.ppt*,*movie*,*.avi,*영화*,*네트워크*,*보안*,*구성도*,*게임*,*스타크래프*,*음악*,*music*,*.mp3*,*.wmv,*.mp4,*vmware*,*보고서* /s > %filename% 
+
+
+echo ----------------------------------------------------------
+echo                   Activity Delete End
+echo ----------------------------------------------------------
+
+pause
