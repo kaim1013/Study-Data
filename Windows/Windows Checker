@@ -1,0 +1,898 @@
+@ECHO off
+SETLOCAL enabledelayedexpansion
+REM Version: 1.1.0
+
+TITLE Checker
+MODE con:cols=100 lines=50
+
+SET ScriptPath=%~dps0%
+SET DateTime=%date%_%time%
+SET DateTime=%DateTime: =_%
+SET DateTime=%DateTime::=%
+SET DateTime=%DateTime:/=_%
+SET DateTime=%DateTime:.=_%
+SET DateTime=%DateTime:-=%
+SET ResultDir=%ScriptPath%%computername%-%DateTime%
+SET ToolList=acm.exe ^
+	BrowsingHistoryView.exe BrowsingHistoryView64.exe ^
+	cports.exe cports64.exe ^
+	CProcess.exe ^
+	DevManView.exe DevManView64.exe ^
+	ExecutedProgramsList.exe ^
+	InstalledDriversList.exe InstalledDriversList64.exe ^
+	LastActivityView.exe ^
+	MyEventViewer.exe MyEventViewer64.exe ^
+	myuninst.exe ^
+	NetworkInterfacesView.exe NetworkInterfacesView64.exe ^
+	OpenedFilesView.exe OpenedFilesView64.exe ^
+	openssl.exe ^
+	PingInfoView.exe ^
+	RecentFilesView.exe ^
+	SecuritySoftView.exe ^
+	serviwin.exe serviwin64.exe ^
+	SimpleWMIView.exe SimpleWMIView64.exe ^
+	TaskSchedulerView.exe TaskSchedulerView64.exe ^
+	tcping.exe tcping64.exe ^
+	USBDeview.exe USBDeview64.exe ^
+	UserProfilesView.exe ^
+	WhatInStartup.exe WhatInStartup64.exe ^
+	WifiHistoryView.exe ^
+	wul.exe ^
+	WinLogOnView.exe
+
+SET CollectionIndex=0
+SET WaitCount=0
+
+REM - variable related system condition - 
+SET CPUUsage=0
+SET MemUsage=0
+
+REM - variable related windows type - 
+SET WinXP=0
+SET WinServer=0
+SET OSType=0
+
+REM - variable related configuration - 
+SET InputCollectorName=
+SET InputOrganizationName=
+SET InputIPAddrForPingTest=
+SET InputIPAddrForTcpPingTest=
+SET InputIPAddrForTracertTest=
+SET InputNetworkType=0
+SET InputNetworkTypeName=
+SET InputEncPassword=
+
+SET FlagCheckSystem=0
+SET FlagCollectBasicInfo=0
+SET FlagCollectDeviceInfo=0
+SET FlagCollectIRInfo=0
+SET FlagLanguage=0
+
+:TOOL_START
+CLS
+
+ECHO ======================================================================
+ECHO 유틸리티와 윈도우 명령어, 기타 도구 사이트 "Nir Sofer(http://www.nirsoft.net/)"
+ECHO ======================================================================
+
+ECHO.
+ECHO ○ 정보 수집 전 시스템 운영환경을 점검합니다.
+
+:CHECK_CONFIG_FILE
+	IF NOT EXIST "%ScriptPath%\config.ini" (
+		GOTO CHECK_PERMISSION
+	)
+
+	FOR /f "usebackq delims=" %%a in ("%ScriptPath%\config.ini") do (
+		SET ln=%%a
+		IF "!ln:~0,1!"=="[" (
+			SET currarea=!ln!
+		) ELSE (
+			FOR /f "tokens=1,2 delims==" %%b in ("!ln!") do (
+				SET currkey=%%b
+				SET currval=%%c
+				IF "[Basic]"=="!currarea!" (
+					SET currval=!currval: =!
+					IF "collector"=="!currkey!" (
+						SET InputCollectorName=!currval!
+					) ELSE IF "organization"=="!currkey!" (
+						SET InputOrganizationName=!currval!
+					) ELSE IF "check_system"=="!currkey!" (
+						IF "y"=="!currval!" (
+							SET FlagCheckSystem=1
+						) ELSE IF "Y"=="!currval!" (
+							SET FlagCheckSystem=1
+						) ELSE (
+							SET FlagCheckSystem=2
+						)
+					) ELSE IF "network_type"=="!currkey!" (
+						SET /A InputNetworkType=!currval!
+					) ELSE IF "basic_info"=="!currkey!" (
+						IF "y"=="!currval!" (
+							SET FlagCollectBasicInfo=1
+						) ELSE IF "Y"=="!currval!" (
+							SET FlagCollectBasicInfo=1
+						) ELSE (
+							SET FlagCollectBasicInfo=2
+						)
+					) ELSE IF "device_info"=="!currkey!" (
+						IF "y"=="!currval!" (
+							SET FlagCollectDeviceInfo=1
+						) ELSE IF "Y"=="!currval!" (
+							SET FlagCollectDeviceInfo=1
+						) ELSE (
+							SET FlagCollectDeviceInfo=2
+						)
+					) ELSE IF "IR_info"=="!currkey!" (
+						IF "y"=="!currval!" (
+							SET FlagCollectIRInfo=1
+						) ELSE IF "Y"=="!currval!" (
+							SET FlagCollectIRInfo=1
+						) ELSE (
+							SET FlagCollectIRInfo=2
+						)
+					) ELSE IF "enc_password"=="!currkey!" (
+						SET InputEncPassword=!currval!
+					)
+				)
+
+				IF "[PING]"=="!currarea!" (
+					SET currval=!currval: =!
+					IF "addr"=="!currkey!" (
+						SET InputIPAddrForPingTest=!currval!
+					)
+				)
+
+				IF "[TCPPING]"=="!currarea!" (
+					IF "addr"=="!currkey!" (
+						SET InputIPAddrForTcpPingTest=!currval!
+					)
+				)
+
+				IF "[TraceRoute]"=="!currarea!" (
+					SET currval=!currval: =!
+					IF "addr"=="!currkey!" (
+						SET InputIPAddrForTracertTest=!currval!
+					)
+				)
+			)
+		)
+	)
+
+:CHECK_PERMISSION
+	net session >nul 2>>&1
+	IF %errorLevel%==0 (
+		ECHO   - 실행 권한: 관리자
+	) ELSE (
+		GOTO CHECK_PERMISSION_FAIL
+	)
+
+:CHECK_TOOLS
+	FOR %%i IN (%ToolList%) DO (
+		IF NOT EXIST "%ScriptPath%Tools\%%i" (
+			GOTO CHECK_TOOLS_FAIL
+		)
+	)
+	ECHO   - 도구 상태: OK
+
+:CHECK_OS_VERSION
+	FOR /F "tokens=2*" %%A in ('REG QUERY "HKLM\Software\Microsoft\Windows NT\CurrentVersion" /v ProductName') DO (
+		SET CurrentVersion=%%B
+	)
+
+	ECHO   - 윈도우 버전: !CurrentVersion!
+
+	ECHO !CurrentVersion! | FINDSTR /C:"Windows XP" >NUL
+	IF %ERRORLEVEL%==0 (
+		SET WinXP=1
+		FOR /F "tokens=2 delims==" %%A IN ('wmic os get caption /value ^|FINDSTR "Home"') DO (
+			GOTO CHECK_OS_SURPPOT_FAIL
+		)
+	)
+
+	ECHO !CurrentVersion! | FINDSTR /C:"Windows Server" >NUL
+	IF %ERRORLEVEL%==0 (
+		SET WinServer=1
+		FOR /F "tokens=2 delims==" %%A IN ('wmic os get caption /value ^|FINDSTR "2000"') DO (
+			GOTO CHECK_OS_SURPPOT_FAIL
+		)
+	)
+
+:CHECK_OS_ID
+	FOR /F "tokens=2*" %%A in ('REG QUERY "HKLM\Software\Microsoft\Cryptography" /v MachineGuid') DO (
+		SET OSIDStr=%%B
+	)
+
+	IF NOT "!OSIDStr!"=="" (
+		ECHO   - 윈도우 아이디: !OSIDStr!
+	) ELSE (
+		ECHO   - 윈도우 아이디: 확인 실패
+		GOTO CHECK_OS_ID_FAIL
+	)
+
+:CHECK_OS_TYPE
+	IF EXIST "%PROGRAMFILES(X86)%" (
+		ECHO   - 윈도우 타입: 64bit
+		SET OSType=64
+	) ELSE (
+		ECHO   - 윈도우 타입: 32bit
+		SET OSType=32
+	)
+
+:CHECK_CPU_MEM_USAGE
+	FOR /F %%A IN ('wmic cpu get loadpercentage^|findstr [0-9]') DO (
+		SET CPUUsage=%%A
+	)
+	FOR /F %%A IN ('wmic os get TotalVisibleMemorySize^|findstr [0-9]') DO (
+		SET TotalMemSize=%%A
+	)
+	FOR /F %%A IN ('wmic os get FreePhysicalMemory^|findstr [0-9]') DO (
+		SET FreeMemSize=%%A
+	)
+
+	ECHO   - CPU 사용률: !CPUUsage!%%
+	SET /A MemUsage=!FreeMemSize!*100/!TotalMemSize!
+	ECHO   - 메모리 사용률: %MemUsage%%%
+
+:CHECK_LOCAL_TIME
+	ECHO   - 현재 로컬 시간: %date% %time%
+
+:INPUT_GO_OR_STOP
+	IF NOT "%FlagCheckSystem%"=="2" (
+		ECHO.
+		IF %WinXP%==1 (
+			SET /p GoStop="※ 점검을 계속 진행하시겠습니까?(Y/N)"
+			IF "%GoStop%"=="N" (
+				GOTO CHECK_USER_INPUT_STOP
+			)
+			IF "%GoStop%"=="n" (
+				GOTO CHECK_USER_INPUT_STOP
+			)
+		) ELSE (
+			CHOICE /T 5 /D Y /M "※ 점검을 계속 진행하시겠습니까?"
+			IF ERRORLEVEL==2 (
+				GOTO CHECK_USER_INPUT_STOP
+			)
+		)
+	)
+
+:INIT_RESULT_DIR
+	@ECHO off
+	MKDIR "%ResultDir%"
+	ECHO   - 수집 정보 저장 폴더 생성: %ResultDir%
+
+
+ECHO.
+ECHO ○ 정보 수집에 필요한 정보를 입력합니다.
+
+:INPUT_COLLECTOR_NAME
+	IF "%InputCollectorName%"=="" (
+		ECHO.
+		SET /p InputCollectorName="※ 점검자 이름을 입력하세요.> "
+	)
+
+	IF "!InputCollectorName!"=="" (
+		ECHO   - 입력 점검자 이름: 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_COLLECTOR_NAME
+	) ELSE (
+		ECHO   - 입력 점검자 이름: %InputCollectorName%
+	)
+
+:INPUT_ORGANIZATION_NAME
+	IF "%InputOrganizationName%"=="" (
+		ECHO.
+		SET /p InputOrganizationName="※ 점검기관 이름을 입력하세요.> "
+	) 
+
+	IF "!InputOrganizationName!"=="" (
+		ECHO   - 입력 점검기관 이름: 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_ORGANIZATION_NAME
+	)ELSE (
+		ECHO   - 입력 점검기관 이름: %InputOrganizationName%
+	)
+
+:INPUT_NETWORKTYPE
+	IF "%InputNetworkType%"=="0" (
+		ECHO.
+		SET /p InputNetworkType="※ 네트워크 타입을 선택하세요.(1.내부망, 2.외부망, 3.제어망, 4.용역망)> "
+	)
+
+	IF "%InputNetworkType%"=="1" (
+		ECHO   - 입력 네트워크 타입: 내부망
+		SET InputNetworkTypeName=내부망
+	) ELSE IF "%InputNetworkType%"=="2" (
+		ECHO   - 입력 네트워크 타입: 외부망
+		SET InputNetworkTypeName=외부망
+	) ELSE IF "%InputNetworkType%"=="3" (
+		ECHO   - 입력 네트워크 타입: 제어망
+		SET InputNetworkTypeName=제어망
+	) ELSE IF "%InputNetworkType%"=="4" (
+		ECHO   - 입력 네트워크 타입: 용역망
+		SET InputNetworkTypeName=용역망
+	) ELSE (
+		ECHO   - 입력 네트워크 타입: 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		SET InputNetworkType=0
+		GOTO INPUT_NETWORKTYPE
+	)
+
+:INPUT_IPADDR_FOR_PING
+	IF "%InputIPAddrForPingTest%"=="" (
+		ECHO.
+		ECHO ※ Ping 테스트를 위한 IP 주소^(들^) 또는 도메인명^(들^)을 입력하세요.^(구분자는 , 입니다.^)
+		SET /p InputIPAddrForPingTest="(ex, 8.8.8.8,naver.com)> "
+	)
+
+	IF NOT "%InputIPAddrForPingTest%"=="" (
+		ECHO   - 입력 IP 주소 정보^(들^): %InputIPAddrForPingTest%
+		CALL :INPUT_IPADDR_FOR_PING_PARSE "%InputIPAddrForPingTest%"
+		GOTO INPUT_IPADDR_FOR_TCP_PING
+	) ELSE (
+		ECHO   - 입력 IP 주소 정보^(들^): 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_IPADDR_FOR_PING
+	)
+
+:INPUT_IPADDR_FOR_PING_PARSE
+	SET inputIPAddr=%~1
+	FOR /f "tokens=1* delims=," %%a IN ("%inputIPAddr%") DO (
+		IF NOT "%%a"=="" (
+			SET tmpPingIPAddr=%%a
+			SET tmpPingIPAddr=!tmpPingIPAddr: =!
+			ECHO !tmpPingIPAddr!>> "%ResultDir%\tmpIPAddr.txt"
+		)
+		IF NOT "%%b"=="" CALL :INPUT_IPADDR_FOR_PING_PARSE "%%b"
+	)
+	EXIT /B 0
+
+:INPUT_IPADDR_FOR_TCP_PING
+	IF "%InputIPAddrForTcpPingTest%"=="" (
+		ECHO.
+		ECHO ※ TCP 연결 테스트를 위한 IP 주소와 포트번호^(들^) 또는 도메인명와 포트번호^(들^)을 입력하세요.^(구분자는 , 입니다.^)
+		SET /p InputIPAddrForTcpPingTest="(ex, naver.com 80, daum.net 433)> "
+	)
+
+	IF NOT "%InputIPAddrForTcpPingTest%"=="" (
+		ECHO   - 입력 TCP IP 주소 정보^(들^): %InputIPAddrForTcpPingTest%
+		CALL :INPUT_IPADDR_FOR_TCP_PING_PARSE "%InputIPAddrForTcpPingTest%"
+		GOTO INPUT_IPADDR_FOR_TRACERT
+	) ELSE (
+		ECHO   - 입력 TCP IP 주소 정보^(들^): 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_IPADDR_FOR_TCP_PING
+	)
+
+:INPUT_IPADDR_FOR_TCP_PING_PARSE
+	SET inputTCPIPAddr=%~1
+	FOR /f "tokens=1* delims=," %%a IN ("%inputTCPIPAddr%") DO (
+		IF NOT "%%a"=="" (
+			SET tmpTCPPingIPAddr=%%a
+			ECHO !tmpTCPPingIPAddr!>> "%ResultDir%\tmpTCPIPAddr.txt"
+		)
+		IF NOT "%%b"=="" CALL :INPUT_IPADDR_FOR_TCP_PING_PARSE "%%b"
+	)
+	EXIT /B 0
+
+:INPUT_IPADDR_FOR_TRACERT
+	IF "%InputIPAddrForTracertTest%"=="" (
+		ECHO.
+		ECHO ※ TraceRoute 테스트를 위한 IP 주소^(들^) 또는 도메인명^(들^)을 입력하세요.^(구분자는 , 입니다.^)
+		SET /p InputIPAddrForTracertTest="(ex, 8.8.8.8,naver.com)> "
+	)
+
+	IF NOT "%InputIPAddrForTracertTest%"=="" (
+		ECHO   - 입력 TRACERT IP 주소 정보^(들^): %InputIPAddrForTracertTest%
+		CALL :INPUT_IPADDR_FOR_TRACERT_PARSE "%InputIPAddrForTracertTest%"
+		GOTO INPUT_ENC_PASSWORD
+	) ELSE (
+		ECHO   - 입력 TRACERT IP 주소 정보^(들^): 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_IPADDR_FOR_TRACERT
+	)
+
+:INPUT_IPADDR_FOR_TRACERT_PARSE
+	SET inputIPAddr=%~1
+	FOR /f "tokens=1* delims=," %%a IN ("%inputIPAddr%") DO (
+		IF NOT "%%a"=="" (
+			SET tmpPingIPAddr=%%a
+			SET tmpPingIPAddr=!tmpPingIPAddr: =!
+			ECHO !tmpPingIPAddr!>> "%ResultDir%\tmpTracertIPAddr.txt"
+		)
+		IF NOT "%%b"=="" CALL :INPUT_IPADDR_FOR_TRACERT_PARSE "%%b"
+	)
+	EXIT /B 0
+
+:INPUT_ENC_PASSWORD
+	IF "%InputEncPassword%"=="" (
+		ECHO.
+		SET /p InputEncPassword="※ 암호화 패스워드를 입력하세요.> "
+	)
+
+	IF "!InputEncPassword!"=="" (
+		ECHO   - 입력 암호화 패스워드: 입력 값이 유효하지 않습니다. 다시 확인해 주시기 바랍니다.
+		GOTO INPUT_ENC_PASSWORD
+	) ELSE (
+		ECHO   - 입력 암호화 패스워드: %InputEncPassword%
+	)
+
+:GATHERING_START
+ECHO.
+
+ECHO ○ 정보 수집을 시작합니다.
+
+:GATHERING_BASIC_INFO
+	ECHO ------------------------------------------------------------------------
+	ECHO 네트워크 정보 수집 시작
+	ECHO ------------------------------------------------------------------------
+
+	START /d "%ScriptPath%Tools" Ping.bat %ResultDir%
+	START /d "%ScriptPath%Tools" TraceRoute.bat %ResultDir%
+
+	ECHO.
+	ECHO ------------------------------------------------------------------------
+	ECHO 기본 정보 수집 시작
+	ECHO ------------------------------------------------------------------------
+
+	@ECHO off
+	ECHO   - %CollectionIndex%. 정보수집기본 정보를 확인합니다.
+	ECHO Collector Name	Ogranization Name	Windows ID	Windows Version	Windows Type	Network Type	Executed DateTime>> "%ResultDir%\CollectBasicInfo.txt"
+	ECHO %InputCollectorName%	%InputOrganizationName%	!OSIDStr!	!CurrentVersion!	%OSType%	%InputNetworkTypeName%	%DateTime%>> "%ResultDir%\CollectBasicInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 시스템 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 시스템 정보를 수집합니다.
+	systeminfo /fo csv >> "%ResultDir%\SystemInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 사용자 프로파일 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 사용자 프로파일 정보를 수집합니다.
+	ECHO User Name	Profile Path	Last Load Time	Folder Created Time	Folder ModIFied Time	Registry ModIFied Time	Registry File Size	User SID	State	Registry Loaded	Logon Time>> "%ResultDir%\UserProfilesInfo.txt"
+	"%ScriptPath%Tools\UserProfilesView.exe" /stab "%ResultDir%\tmp.txt"
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\UserProfilesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM ActiveX 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. ActiveX 정보를 수집합니다.
+	ECHO CLSID	Status	File Description	Company	Product Name	File Version	ProgID	Control	Filename	ModIFied Date>> "%ResultDir%\ActiveXsInfo.txt"
+	"%ScriptPath%Tools\acm.exe" /stab "%ResultDir%\tmp.txt"
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\ActiveXsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 브라우저 히스토리 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 브라우저 히스토리 정보를 수집합니다.
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\BrowsingHistoryView.exe" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\BrowsingHistoryView64.exe" /stab "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\BrowserHistorysInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+	
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM USB 연결 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. USB 연결 정보를 수집합니다.
+	ECHO Device Name	Description	Device Type	Connected	Safe To Unplug	Disabled	USB Hub	Drive Letter	Serial Number	Created Date	Last Plug/Unplug Date	VendorID	ProductID	Firmware Revision	USB Calss	USB SubClass	USB Protocol	Hub/Port	Computer Name	Vendor Name	Product Name	ParentId Prefix	Service Name	Service Descripton	Driver Filename	Device Class	Device Mfg	Power	USB Version	Driver Descripton	Driver Version	Driver InfSection	Driver InfPath	Instance ID	Capabilites>> "%ResultDir%\USBConnetionsInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\USBDeview.exe" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\USBDeview64.exe" /stab "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\USBConnetionsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 보안 소프트웨어 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 보안 소프트웨어 정보를 수집합니다.
+	"%ScriptPath%Tools\SecuritySoftView.exe" /stab "%ResultDir%\SecuritySoftwaresInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 서비스 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 서비스 정보를 수집합니다.
+	ECHO Name	Display Name	Status	Startup Type	ErrorControl	Group	Dependencies	File Description	File Version	Company	Product Name	Description	Filename	Last Error	Last Write Time	Command-Line>> "%ResultDir%\ServicesInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\serviwin.exe" /stab services "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\serviwin64.exe" /stab services "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\ServicesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 설치된 프로그램 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 설치된 프로그램 정보를 수집합니다.
+	ECHO Entry Name	Product Name	Version	Company	Description	Obsolete	Uninstall	Installation Folder	Install Source	Web Site	Installation Date	Uninstall String	Installation Change String	Quiet Uninstall	Registry Key	Installer	Root Key	System Component>> "%ResultDir%\InstalledProgramsInfo.txt"
+	"%ScriptPath%Tools\myuninst.exe" /stab "%ResultDir%\tmp.txt"
+	IF %WinXP%==0 (
+		TIMEOUT /t 10 /NOBREAK >NUL
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\InstalledProgramsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 공유 폴더 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 공유 폴더 정보를 수집합니다.
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\SimpleWMIView.exe" /Namespace "root\CIMV2" /Class "SELECT caption, name, path, status FROM Win32_Share" /ConnectComputer 1 /SyncMode 2 /stab "%ResultDir%\SharedInfo.txt"
+	) ELSE (
+		"%ScriptPath%Tools\SimpleWMIView64.exe" /Namespace "root\CIMV2" /Class "SELECT caption, name, path, status FROM Win32_Share" /ConnectComputer 1 /SyncMode 2 /stab "%ResultDir%\SharedInfo.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 윈도우 업데이트 히스토리 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 윈도우 업데이트 히스토리 정보를 수집합니다.
+	ECHO Name	Description	Installed By	Installation Date	Display Version	Update Type	Application	Web Link	Uninstall Command	Last ModIFied Time	Long Description>> "%ResultDir%\UpdateHistoriesInfo.txt"
+	"%ScriptPath%Tools\wul.exe" /stab "%ResultDir%\tmp.txt"
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\UpdateHistoriesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 이벤트 로그 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 이벤트 로그 정보를 수집합니다.
+	ECHO Record Number	Log Type	Event Type	Time	Source	Category	Event ID	User Name	Computer	Event Data Length	Record Length	Event Description>> "%ResultDir%\EventLogsInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\MyEventViewer.exe" /sort "Log Type" /EventLogNames "Security" /SaveDirect /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\MyEventViewer64.exe" /sort "Log Type" /EventLogNames "Security" /SaveDirect /stab "%ResultDir%\tmp.txt"
+	)
+	IF %WinXP%==0 (
+		TIMEOUT /t 30 /NOBREAK >NUL
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\EventLogsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	IF %FlagCollectDeviceInfo%==0 (
+		ECHO.
+		IF %WinXP%==1 (
+			SET /p GoStop="※ 장치 연결 정보를 계속 수집하시겠습니까?(Y/N)"
+			IF "%GoStop%"=="N" (
+				GOTO GATHERING_INCIDENT_RESPONSE_INFO
+			)
+			IF "%GoStop%"=="n" (
+				GOTO GATHERING_INCIDENT_RESPONSE_INFO
+			)
+		) ELSE (
+			CHOICE /T 5 /D Y /M "※ 장치 연결 정보를 계속 수집하시겠습니까?"
+			IF ERRORLEVEL==2 (
+				GOTO GATHERING_INCIDENT_RESPONSE_INFO
+			)
+		)
+	) ELSE IF %FlagCollectDeviceInfo%==2 (
+		GOTO GATHERING_DEVICE_CONNECT_INFO_SKIP
+	)
+
+:GATHERING_DEVICE_CONNECT_INFO
+	ECHO ------------------------------------------------------------------------
+	ECHO 장치 연결 정보 수집 시작
+	ECHO ------------------------------------------------------------------------
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 네트워크 인터페이스 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 네트워크 인터페이스 정보를 수집합니다.
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\NetworkInterfacesView.exe" /stab "%ResultDir%\NetworkInterfacesInfo.txt"
+	) ELSE (
+		"%ScriptPath%Tools\NetworkInterfacesView.exe" /stab "%ResultDir%\NetworkInterfacesInfo.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 장치 관리자 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 장치 관리자 정보를 수집합니다.
+	ECHO Device Name	Manufacturer	Service	Device Type Code	Device Type Name	Device Instance ID	Location	Capabilites	Config Flags	Disabled	Connected	Device Registry Time 1	Device Registry Time 2	Driver Letter	Container ID	Driver Description	Driver Version	.inf File	.inf Section	Driver Date	Driver Registry Time>> "%ResultDir%\DevicesManageInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\DevManView.exe" /sort "Service" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\DevManView64.exe" /sort "Service" /stab "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\DevicesManageInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 설치된 드라이버 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 설치된 드라이버 정보를 수집합니다.
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\InstalledDriversList.exe" /sort "Startup Type" /stab "%ResultDir%\InstalledDriversInfo.txt"
+	) ELSE (
+		"%ScriptPath%Tools\InstalledDriversList64.exe" /sort "Startup Type" /stab "%ResultDir%\InstalledDriversInfo.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM Wifi 히스토리 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. Wifi 히스토리 정보를 수집합니다.
+	"%ScriptPath%Tools\WifiHistoryView.exe" /stab "%ResultDir%\WifiHistoriesInfo.txt"
+	
+:GATHERING_DEVICE_CONNECT_INFO_SKIP
+
+	IF %FlagCollectIRInfo%==0 (
+		ECHO.
+		IF %WinXP%==1 (
+			SET /p GoStop="※ 침해 대응 정보를 계속 수집하시겠습니까?(Y/N)"
+			IF "%GoStop%"=="N" (
+				GOTO GATHERING_SUCCESS_CHECK
+			)
+			IF "%GoStop%"=="n" (
+				GOTO GATHERING_SUCCESS_CHECK
+			)
+		) ELSE (
+			CHOICE /T 5 /D N /M "※ 침해 대응 정보를 계속 수집하시겠습니까?"
+			IF ERRORLEVEL==2 (
+				GOTO GATHERING_SUCCESS_CHECK
+			)
+		)
+	) ELSE IF %FlagCollectIRInfo%==2 (
+		GOTO GATHERING_SUCCESS_CHECK
+	)
+
+:GATHERING_INCIDENT_RESPONSE_INFO
+	ECHO ------------------------------------------------------------------------
+	ECHO 침해 대응 정보 수집 시작
+	ECHO ------------------------------------------------------------------------
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 활성화된 프로세스 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 활성화된 프로세스 정보를 수집합니다.
+	ECHO Process Name	Process ID	Priority	Product Name	Version	Description	Company	Window Title	File Size	File Created Date	File ModIFied Date	Filename	Base Address	Created On	Visible Windows	Hidden Windows	User Name	Mem Usage	Mem Usage Peak	Page Faults	Pagefile Usage	Pagefile Peak Usage	File Attributes>> "%ResultDir%\ProcessesInfo.txt"
+	"%ScriptPath%Tools\CProcess.exe" /stab "%ResultDir%\tmp.txt"
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\ProcessesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 프로세스 연결 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 프로세스 연결 정보를 수집합니다.
+	ECHO Process Name	Process ID	Procotol	Local Port	Local Port Name	Local Address	Remote Port	Remote Port Name	Remote Address	Remote Host Name	State	Process Path	Product Name	File Description	File Version	Company	Process Created On	User Name	Process Service	Process Attributes	Added On	Module Filename	Remote IP Country	Window Title>> "%ResultDir%\ConnectionsInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\cports.exe" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\cports64.exe" /stab "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\ConnectionsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 자동 시작 실행 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 자동 시작 실행 정보를 수집합니다.
+	ECHO Name	Type	Command Line	Disabled	Product Name	File Version	Product Description	Company	Location	Process Path	File Created Time	File ModIFied Time	File Attributes	File Size	Process Created On>> "%ResultDir%\AutorunsInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\WhatInStartup.exe" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\WhatInStartup64.exe" /stab "%ResultDir%\tmp.txt"
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\AutorunsInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 윈도우 로그인 히스토리 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 윈도우 로그인 히스토리 정보를 수집합니다.
+	"%ScriptPath%Tools\WinLogOnView.exe" /stab "%ResultDir%\LogonHistoriesInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 최근 사용자 행위 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 최근 사용자 행위 정보를 수집합니다.
+	"%ScriptPath%Tools\LastActivityView.exe" /stab "%ResultDir%\LastActivitiesInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 최근 사용된 파일 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 최근 사용된 파일들 정보를 수집합니다.
+	ECHO Filename	ModIFied Time	Created Time	Executed Time	Missing File	Stored In	Extension	File Only>> "%ResultDir%\RecentFilesInfo.txt"
+	"%ScriptPath%Tools\RecentFilesView.exe" /sort "Missing File" /stab "%ResultDir%\tmp.txt"
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\RecentFilesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 실행한 파일 프로그램 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 실행한 프로그램 정보를 수집합니다.
+	"%ScriptPath%Tools\ExecutedProgramsList.exe" /stab "%ResultDir%\ExecutedProgramsInfo.txt"
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 열려진 파일 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 열려진 파일 정보를 수집합니다.
+	ECHO Filename	Full Path	Handle	Created Time	ModIFied Time	Attributes	File Size	Read Access	Write Access	Delete Access	Shared Read	Shared Write	Shared Delete	Granted Access	File Position	Process ID	Process Name	Process Path	Extension	Position>> "%ResultDir%\OpendFilesInfo.txt"
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\OpenedFilesView.exe" /stab "%ResultDir%\tmp.txt"
+	) ELSE (
+		"%ScriptPath%Tools\OpenedFilesView64.exe" /stab "%ResultDir%\tmp.txt"
+	)
+	IF %WinXP%==0 (
+		TIMEOUT /t 30 /NOBREAK >NUL
+	)
+	IF EXIST "%ResultDir%\tmp.txt" (
+		TYPE "%ResultDir%\tmp.txt" >> "%ResultDir%\OpendFilesInfo.txt"
+		DEL /q "%ResultDir%\tmp.txt"
+	)
+
+	@ECHO off
+	SET /a CollectionIndex=%CollectionIndex%+1
+	REM ------------------------------------------------------------------------
+	REM 윈도우 스케쥴러 정보
+	REM ------------------------------------------------------------------------
+	ECHO   - %CollectionIndex%. 윈도우 스케쥴러 정보를 수집합니다.
+	IF %OSType%==32 (
+		"%ScriptPath%Tools\TaskSchedulerView.exe" /stab "%ResultDir%\SchedulersInfo.txt"
+	) ELSE (
+		"%ScriptPath%Tools\TaskSchedulerView64.exe" /stab "%ResultDir%\SchedulersInfo.txt"
+	)
+
+	GOTO GATHERING_SUCCESS_CHECK
+
+:CHECK_USER_INPUT_STOP
+	ECHO.
+	ECHO ○ 점검 종료를 선택하셨습니다. 도구를 정상적으로 종료합니다.
+	GOTO TOOL_END
+
+:CHECK_TOOLS_FAIL
+	ECHO.
+	ECHO ○ 점검에 사용될 도구들이 존재하지 않습니다. 도구들이 정상적으로 존재하는지 확인 바랍니다. (Fail)
+	GOTO TOOL_END
+
+:CHECK_PERMISSION_FAIL
+	ECHO.
+	ECHO ○ 원활한 점검을 위해 관리자 권한으로 실행해 주시기 바랍니다. (Fail)
+	GOTO TOOL_END
+
+:CHECK_OS_VERSION_FAIL
+	ECHO.
+	ECHO ○ 운영체제 버전을 확인하는데 실패 했습니다. 도구 개발자에게 문의 바랍니다. (Fail)
+	GOTO TOOL_END
+
+:CHECK_OS_ID_FAIL
+	ECHO.
+	ECHO ○ 운영체제 아이디를 확인하는데 실패 했습니다. 도구 개발자에게 문의 바랍니다. (Fail)
+	GOTO TOOL_END
+
+:CHECK_OS_SURPPOT_FAIL
+	ECHO.
+	ECHO ○ 운영체제 윈도우 XP 프로(Professional), 윈도우 서버 2003 버전 이상만 지원합니다. (Fail)
+	GOTO TOOL_END
+
+:GATHERING_SUCCESS_CHECK
+	SET /a WaitCount=%WaitCount%+1
+	IF EXIST "%ResultDir%\TCPPingTestInfo.txt" (
+		IF EXIST "%ResultDir%\PingTestInfo.txt" (
+			IF EXIST "%ResultDir%\TraceRoutesInfo.txt" (
+				GOTO GATHERING_SUCCESS
+			)
+		)
+	)
+
+	IF %WinXP%==0 (
+		TIMEOUT /t 5 /NOBREAK >NUL
+	) ELSE (
+		PING 127.0.0.1 -n 5 >NUL
+	)
+
+	IF %WaitCount%==100 (
+		GOTO GATHERING_SUCCESS
+	)
+
+	GOTO GATHERING_SUCCESS_CHECK
+
+:GATHERING_SUCCESS
+	ECHO.
+	ECHO ○ 모든 정보를 정상적으로 수집하였습니다. 수집된 정보 저장위치를 확인 바랍니다.
+
+	ECHO.
+	ECHO ○ 수집 정보 저장 폴더 위치: %ResultDir%
+	GOTO GATHERING_ENCRYPT
+
+:GATHERING_ENCRYPT
+	ECHO.
+	ECHO ○ 수집된 정보들을 암호화처리합니다.
+	ECHO|SET /p="%InputEncPassword%"> chr.tmp
+	FOR %%a in (chr.tmp) do fsutil file createnew zero.tmp %%~Za > NUL
+	SET "InputEncPasswordHex="
+	FOR /F "skip=1 tokens=2" %%a in ('FC /B chr.tmp zero.tmp') do SET "InputEncPasswordHex=!InputEncPasswordHex!%%a"
+	DEL /q chr.tmp zero.tmp
+
+	REM ------------------------------------------------------------------------
+	FOR /F "tokens=*" %%A IN ('DIR /B "%ResultDir%"') DO (
+		SET FileName=%%A
+		IF EXIST "%ResultDir%\!FileName!" (
+			SET OutFileName=!FileName:txt=enc!
+			IF %WinXP%==0 (
+				"%ScriptPath%Tools\openssl.exe" enc -aes-256-ecb -nosalt -in "%ResultDir%\!FileName!" -out "%ResultDir%\!OutFileName!" -K %InputEncPasswordHex%
+			) ELSE (
+				"%ScriptPath%Tools\XP\openssl.exe" enc -aes-256-ecb -iv 0 -in "%ResultDir%\!FileName!" -out "%ResultDir%\!OutFileName!" -K %InputEncPasswordHex%
+			)
+			DEL /q "%ResultDir%\!FileName!"
+		)
+	)
+
+	ECHO.
+	ECHO ○ 수집된 정보들의 암호화 처리를 완료했습니다. 점검도구 실행을 종료합니다. (Complete)
+
+:TOOL_END
+	PAUSE
+	ENDLOCAL
+	EXIT
