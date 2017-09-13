@@ -42,6 +42,10 @@ del /s /q %USERPROFILE%\Recent
 
 echo %ERRORLEVEL%
 
+del /s /q %USERPROFILE%\AppData\Roaming\HNC\Office\Recent
+
+echo %ERRORLEVEL%
+
 del /s /q %USERPROFILE%\AppData\Roaming\Microsoft\Office\Recent
 
 echo %ERRORLEVEL%
